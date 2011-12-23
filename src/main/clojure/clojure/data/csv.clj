@@ -10,7 +10,7 @@
       :doc "Reading and writing comma separated values."}
   clojure.data.csv
   (:require (clojure [string :as str]))
-  (:import (java.io Reader Writer StringReader EOFException)))
+  (:import (java.io PushbackReader Reader Writer StringReader EOFException)))
 
 ;(set! *warn-on-reflection* true)
 
@@ -20,7 +20,15 @@
 (def ^{:private true} cr  (int \return))
 (def ^{:private true} eof -1)
 
-(defn- read-quoted-cell [^Reader reader ^StringBuilder sb sep quote]
+(defn- cr-look-ahead [^PushbackReader reader]
+  (let [ch (.read reader)]
+    (condp == ch
+      lf :eol
+      eof :eof
+      (do (.unread reader ch)
+          :eol))))
+
+(defn- read-quoted-cell [^PushbackReader reader ^StringBuilder sb sep quote]
   (loop [ch (.read reader)]
     (condp == ch
       quote (let [next-ch (.read reader)]
@@ -29,16 +37,14 @@
                           (recur (.read reader)))
                 sep :sep
                 lf  :eol
-                cr  (if (== (.read reader) lf)
-                      :eol
-                      (throw (Exception. ^String (format "CSV error (unexpected character: %c)" next-ch))))
+                cr (cr-look-ahead reader)
                 eof :eof
                 (throw (Exception. ^String (format "CSV error (unexpected character: %c)" next-ch)))))
       eof (throw (EOFException. "CSV error (unexpected end of file)"))
       (do (.append sb (char ch))
           (recur (.read reader))))))
 
-(defn- read-cell [^Reader reader ^StringBuilder sb sep quote]
+(defn- read-cell [^PushbackReader reader ^StringBuilder sb sep quote]
   (let [first-ch (.read reader)]
     (if (== first-ch quote)
       (read-quoted-cell reader sb sep quote)
@@ -46,11 +52,7 @@
         (condp == ch
           sep :sep
           lf  :eol
-          cr (let [next-ch (.read reader)]
-               (if (== next-ch lf)
-                 :eol
-                 (do (.append sb \return)
-                     (recur next-ch))))
+          cr (cr-look-ahead reader)
           eof :eof
           (do (.append sb (char ch))
               (recur (.read reader))))))))
@@ -63,22 +65,12 @@
         (recur (conj! record (str cell)))
         [(persistent! (conj! record (str cell))) sentinel]))))
 
-(defprotocol Read-CSV-From
-  (read-csv-from [input sep quote]))
-
-(extend-protocol Read-CSV-From
-  String
-  (read-csv-from [s sep quote]
-    (read-csv-from (StringReader. s) sep quote))
-  
-  Reader
-  (read-csv-from [reader sep quote] 
-    (lazy-seq
-     (let [[record sentinel] (read-record reader sep quote)]
-       (case sentinel
-	 :eol (cons record (read-csv-from reader sep quote))
-	 :eof (when-not (= record [""])
-		(cons record nil)))))))
+(defn- read-csv-from [reader sep quote]
+  (lazy-seq (let [[record sentinel] (read-record reader sep quote)]
+              (case sentinel
+                :eol (cons record (read-csv-from reader sep quote))
+                :eof (when-not (= record [""])
+                       (cons record nil))))))
 
 (defn read-csv
   "Reads CSV-data from input (String or java.io.Reader) into a lazy
@@ -88,9 +80,13 @@
      :separator (default \\,)
      :quote (default \\\")"
   [input & options]
+  {:pre [(or (instance? String input) (instance? Reader input))]}
   (let [{:keys [separator quote] :or {separator \, quote \"}} options]
-    (read-csv-from input (int separator) (int quote))))
-
+    (read-csv-from (PushbackReader. (if (instance? String input)
+                                      (StringReader. input)
+                                      input))
+                   (int separator)
+                   (int quote))))
 
 ;; Writing
 

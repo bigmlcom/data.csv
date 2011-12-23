@@ -11,6 +11,9 @@
 2000,Mercury,Cougar
 ")
 
+(def ^{:private true} simple-carriage
+  "Year,Make,Model\r1997,Ford,E350\r2000,Mercury,Cougar\r")
+
 (def ^{:private true} simple-alt-sep
   "Year;Make;Model
 1997;Ford;E350
@@ -30,6 +33,11 @@ air, moon roof, loaded\",4799.00")
     (is (= (count (first csv)) 3))
     (is (= (first csv) ["Year" "Make" "Model"]))
     (is (= (last csv) ["2000" "Mercury" "Cougar"])))
+  (let [csv (read-csv simple-carriage)]
+    (is (= (count csv) 3))
+    (is (= (count (first csv)) 3))
+    (is (= (first csv) ["Year" "Make" "Model"]))
+    (is (= (last csv) ["2000" "Mercury" "Cougar"])))
   (let [csv (read-csv simple-alt-sep :separator \;)]
     (is (= (count csv) 3))
     (is (= (count (first csv)) 3))
@@ -42,7 +50,7 @@ air, moon roof, loaded\",4799.00")
            ["1997" "Ford" "E350" "ac, abs, moon" "3000.00"]))
     (is (= (last csv)
            ["1996" "Jeep" "Grand Cherokee", "MUST SELL!\nair, moon roof, loaded" "4799.00"]))))
-        
+
 
 (deftest reading-and-writing
   (let [string-writer (StringWriter.)]
@@ -53,4 +61,3 @@ air, moon roof, loaded\",4799.00")
 (deftest throw-if-quoted-on-eof
   (let [s "ab,\"de,gh\nij,kl,mn"]
     (is (thrown? RuntimeException (doall (read-csv s))))))
-
